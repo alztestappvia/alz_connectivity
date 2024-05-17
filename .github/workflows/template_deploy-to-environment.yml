@@ -1,0 +1,70 @@
+on:
+  workflow_call:
+    inputs:
+      azure-primary-region: 
+        type: string
+        required: true
+        description: 'The primary Azure region to deploy to'
+      azure-secondary-region: 
+        type: string
+        required: true
+        description: 'The secondary Azure region to deploy to'
+      environment: 
+        type: string
+        required: true
+        description: 'The environment to deploy to'
+      runs-on:
+        type: string
+        required: false
+        description: 'The runner to run on'
+        default: 'ubuntu-latest'
+    secrets:
+      GH_TOKEN:
+        required: true
+        description: 'The GitHub Token'
+
+permissions:
+      id-token: write
+      contents: read
+
+jobs:
+  prepare_vars:
+    name: Prepare Variables
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - id: prepare_vars
+        run: |
+          echo "AZURE_CLIENT_ID=${{ vars.AZURE_CLIENT_ID }}" >> "$GITHUB_OUTPUT"
+          echo "AZURE_TENANT_ID=${{ vars.AZURE_TENANT_ID }}" >> "$GITHUB_OUTPUT"
+          echo "terraform-subscription-id=${{ vars.SUBSCRIPTION_CONNECTIVITY }}" >> "$GITHUB_OUTPUT"
+          echo "terraform-backend-subscription-id=${{ vars.SUBSCRIPTION_STATE }}" >> "$GITHUB_OUTPUT"
+          echo "terraform-backend-storage-account-name=${{ vars.ID_ALZ_CONNECTIVITY }}" >> "$GITHUB_OUTPUT"
+          echo "management-storage-account-name=${{ vars.ID_ALZ_MANAGEMENT }}" >> "$GITHUB_OUTPUT"
+          echo "firewall-config-storage-account-name=${{ vars.ID_ALZ_FIREWALL_CONFIG }}" >> "$GITHUB_OUTPUT"
+    outputs:
+      AZURE_CLIENT_ID: ${{ steps.prepare_vars.outputs.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ steps.prepare_vars.outputs.AZURE_TENANT_ID }}
+      terraform-subscription-id: ${{ steps.prepare_vars.outputs.terraform-subscription-id }}
+      terraform-backend-subscription-id: ${{ steps.prepare_vars.outputs.terraform-backend-subscription-id }}
+      terraform-backend-storage-account-name: ${{ steps.prepare_vars.outputs.terraform-backend-storage-account-name }}
+      management-storage-account-name: ${{ steps.prepare_vars.outputs.management-storage-account-name }}
+      firewall-config-storage-account-name: ${{ steps.prepare_vars.outputs.firewall-config-storage-account-name }}
+
+  deploy_terraform: 
+    uses: alztestappvia/alz_cicd_templates/.github/workflows/terraform-deploy.yaml@main
+    needs: prepare_vars
+    name: Run Terraform
+
+    with:
+      environment: ${{ inputs.environment }}
+      pool: ${{ inputs.runs-on }}
+      terraform-subscription-id: ${{ needs.prepare_vars.outputs.terraform-subscription-id }}
+      terraform-backend-subscription-id: ${{ needs.prepare_vars.outputs.terraform-backend-subscription-id }}
+      terraform-backend-storage-account-name: ${{ needs.prepare_vars.outputs.terraform-backend-storage-account-name }}
+      terraform-backend-filename: connectivity.tfstate
+      terraform-command-options: '-var use_oidc=true -var networking_model=virtualwan -var environment=${{ inputs.environment }} -var firewall_config_storage_account_name=${{ needs.prepare_vars.outputs.firewall-config-storage-account-name }} -var management_storage_account_name=${{ needs.prepare_vars.outputs.management-storage-account-name }} -var primary_location=${{ inputs.azure-primary-region }} -var secondary_location=${{ inputs.azure-secondary-region }}'
+    secrets:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      AZURE_CLIENT_ID: ${{ needs.prepare_vars.outputs.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ needs.prepare_vars.outputs.AZURE_TENANT_ID }}
